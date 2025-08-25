@@ -1,0 +1,1032 @@
+--// Enhanced Puppyware-style UI using ONLY Roblox Drawing API
+--// Insanely cool visual effects while staying undetectable!
+
+local Drawing = Drawing or getgenv().Drawing
+assert(Drawing, 'Your executor does not support the Drawing API!')
+local TweenService = game:GetService('TweenService')
+local RunService = game:GetService('RunService')
+
+local PuppywareUI = {}
+PuppywareUI.__index = PuppywareUI
+
+-- Enhanced color palette with gradients simulation
+local colors = {
+	background = Color3.fromRGB(15, 15, 20),
+	backgroundSecondary = Color3.fromRGB(22, 22, 28),
+	accent = Color3.fromRGB(147, 51, 234), -- vibrant purple
+	accentGlow = Color3.fromRGB(167, 91, 255), -- lighter purple for glow effect
+	outline = Color3.fromRGB(60, 60, 70),
+	outlineGlow = Color3.fromRGB(147, 51, 234),
+	text = Color3.fromRGB(240, 240, 250),
+	textSecondary = Color3.fromRGB(180, 180, 190),
+	section = Color3.fromRGB(25, 25, 32),
+	sectionHover = Color3.fromRGB(30, 30, 38),
+	tabbg = Color3.fromRGB(18, 18, 24),
+	tabsel = Color3.fromRGB(147, 51, 234),
+	tabselGlow = Color3.fromRGB(167, 91, 255),
+	button = Color3.fromRGB(40, 40, 50),
+	buttonHover = Color3.fromRGB(147, 51, 234),
+	buttonActive = Color3.fromRGB(167, 91, 255),
+	success = Color3.fromRGB(34, 197, 94),
+	warning = Color3.fromRGB(251, 191, 36),
+	error = Color3.fromRGB(239, 68, 68),
+}
+
+-- Animation system
+local animations = {}
+local animationId = 0
+
+local function createAnimation(duration, from, to, callback)
+	animationId = animationId + 1
+	local id = animationId
+	local startTime = tick()
+	
+	animations[id] = {
+		duration = duration,
+		from = from,
+		to = to,
+		callback = callback,
+		startTime = startTime
+	}
+	
+	return id
+end
+
+local function stopAnimation(id)
+	animations[id] = nil
+end
+
+-- Easing functions
+local function easeOutQuart(t)
+	return 1 - math.pow(1 - t, 4)
+end
+
+local function easeOutBounce(t)
+	if t < 1/2.75 then
+		return 7.5625 * t * t
+	elseif t < 2/2.75 then
+		t = t - 1.5/2.75
+		return 7.5625 * t * t + 0.75
+	elseif t < 2.5/2.75 then
+		t = t - 2.25/2.75
+		return 7.5625 * t * t + 0.9375
+	else
+		t = t - 2.625/2.75
+		return 7.5625 * t * t + 0.984375
+	end
+end
+
+-- Color interpolation
+local function lerpColor(a, b, t)
+	return Color3.new(
+		a.R + (b.R - a.R) * t,
+		a.G + (b.G - a.G) * t,
+		a.B + (b.B - a.B) * t
+	)
+end
+
+-- Enhanced utility functions
+local function newText(text, size, pos, color, font)
+	local t = Drawing.new('Text')
+	t.Text = text
+	t.Size = size
+	t.Position = pos
+	t.Color = color
+	t.Center = false
+	t.Outline = true
+	t.Font = font or 2 -- Gotham font
+	return t
+end
+
+local function newRect(pos, size, color, filled, transparency)
+	local r = Drawing.new('Square')
+	r.Position = pos
+	r.Size = size
+	r.Color = color
+	r.Filled = filled or true
+	r.Thickness = 2
+	r.Visible = true
+	r.Transparency = transparency or 1
+	return r
+end
+
+-- Create glow effect using multiple rectangles
+local function createGlow(pos, size, color, intensity)
+	local glowRects = {}
+	for i = 1, intensity or 3 do
+		local glowRect = newRect(
+			pos - Vector2.new(i * 2, i * 2),
+			size + Vector2.new(i * 4, i * 4),
+			color,
+			true,
+			0.1 / i
+		)
+		table.insert(glowRects, glowRect)
+	end
+	return glowRects
+end
+
+-- Particle system for visual effects
+local function createParticles(centerPos, count, color)
+	local particles = {}
+	for i = 1, count do
+		local angle = (i / count) * math.pi * 2
+		local distance = math.random(20, 60)
+		local pos = centerPos + Vector2.new(
+			math.cos(angle) * distance,
+			math.sin(angle) * distance
+		)
+		
+		local particle = Drawing.new('Circle')
+		particle.Position = pos
+		particle.Radius = math.random(2, 5)
+		particle.Color = color
+		particle.Filled = true
+		particle.Transparency = 0.8
+		particle.Visible = true
+		
+		-- Animate particle
+		createAnimation(2, 0.8, 0, function(value)
+			particle.Transparency = value
+			if value <= 0 then
+				particle:Remove()
+			end
+		end)
+		
+		table.insert(particles, particle)
+	end
+	return particles
+end
+
+function PuppywareUI.new(title)
+	local self = setmetatable({}, PuppywareUI)
+	self.Visible = true
+	self.Title = title or 'Puppyware Enhanced'
+	self.Tabs = {}
+	self.SelectedTab = 1
+	self.HoveredElement = nil
+	self.AnimatedElements = {}
+	self.Particles = {}
+	self.IsLoading = true
+	self.LoadingProgress = 0
+
+	-- Window position and size
+	self.Position = Vector2.new(100, 100)
+	self.Size = Vector2.new(480, 380)
+
+	-- Create gradient background effect using multiple rectangles
+	self.BGGradient = {}
+	for i = 1, 10 do
+		local gradientRect = newRect(
+			self.Position,
+			Vector2.new(self.Size.X, self.Size.Y / 10),
+			lerpColor(colors.background, colors.backgroundSecondary, i / 10),
+			true
+		)
+		gradientRect.Position = self.Position + Vector2.new(0, (i - 1) * (self.Size.Y / 10))
+		table.insert(self.BGGradient, gradientRect)
+	end
+
+	-- Outer glow
+	self.OuterGlow = createGlow(self.Position, self.Size, colors.accentGlow, 4)
+
+	-- Main window outline with animated glow
+	self.Outline = newRect(
+		self.Position - Vector2.new(2, 2),
+		self.Size + Vector2.new(4, 4),
+		colors.outline,
+		false
+	)
+	
+	-- Animated title bar with gradient effect
+	self.TitleBarGradient = {}
+	for i = 1, 8 do
+		local titleRect = newRect(
+			self.Position,
+			Vector2.new(self.Size.X / 8, 40),
+			lerpColor(colors.accent, colors.accentGlow, math.sin(i * 0.5) * 0.5 + 0.5),
+			true
+		)
+		titleRect.Position = self.Position + Vector2.new((i - 1) * (self.Size.X / 8), 0)
+		table.insert(self.TitleBarGradient, titleRect)
+	end
+
+	-- Enhanced title text with shadow effect
+	self.TitleShadow = newText(
+		self.Title,
+		22,
+		self.Position + Vector2.new(13, 8),
+		Color3.new(0, 0, 0),
+		3
+	)
+	self.TitleText = newText(
+		self.Title,
+		22,
+		self.Position + Vector2.new(12, 7),
+		Color3.new(1, 1, 1),
+		3
+	)
+
+	-- Close button with hover effect
+	self.CloseButton = newRect(
+		self.Position + Vector2.new(self.Size.X - 35, 8),
+		Vector2.new(24, 24),
+		colors.error,
+		true
+	)
+	self.CloseX = newText(
+		"×",
+		20,
+		self.Position + Vector2.new(self.Size.X - 27, 8),
+		Color3.new(1, 1, 1),
+		3
+	)
+
+	-- Tab containers
+	self.TabRects = {}
+	self.TabTexts = {}
+	self.TabGlows = {}
+
+	-- Section containers
+	self.SectionRects = {}
+	self.SectionTexts = {}
+	self.ControlElements = {}
+
+	-- Status bar at bottom
+	self.StatusBar = newRect(
+		self.Position + Vector2.new(0, self.Size.Y - 25),
+		Vector2.new(self.Size.X, 25),
+		colors.tabbg,
+		true
+	)
+	self.StatusText = newText(
+		"Ready • Enhanced UI Active",
+		14,
+		self.Position + Vector2.new(10, self.Size.Y - 20),
+		colors.textSecondary
+	)
+
+	-- Initialize animation system
+	self.AnimationConnection = RunService.Heartbeat:Connect(function()
+		local currentTime = tick()
+		for id, anim in pairs(animations) do
+			local elapsed = currentTime - anim.startTime
+			local progress = math.min(elapsed / anim.duration, 1)
+			local easedProgress = easeOutQuart(progress)
+			
+			local value = anim.from + (anim.to - anim.from) * easedProgress
+			anim.callback(value)
+			
+			if progress >= 1 then
+				animations[id] = nil
+			end
+		end
+		
+		-- Animate title bar gradient
+		for i, rect in ipairs(self.TitleBarGradient) do
+			local wave = math.sin(currentTime * 2 + i * 0.5) * 0.3 + 0.7
+			rect.Color = lerpColor(colors.accent, colors.accentGlow, wave)
+		end
+		
+		-- Pulsing outer glow
+		local glowIntensity = math.sin(currentTime * 1.5) * 0.3 + 0.7
+		for _, glowRect in ipairs(self.OuterGlow) do
+			glowRect.Transparency = 0.1 * glowIntensity
+		end
+		
+		-- Update loading screen if active
+		self:UpdateLoadingScreen(currentTime)
+	end)
+
+	-- Create loading screen elements
+	self:CreateLoadingScreen()
+
+	-- Start loading sequence
+	self:StartLoadingSequence()
+
+	self:SetupInputHandling()
+	self:Redraw()
+
+	return self
+end
+
+function PuppywareUI:CreateLoadingScreen()
+	local centerPos = self.Position + self.Size / 2
+	
+	-- Loading background overlay
+	self.LoadingOverlay = newRect(
+		self.Position,
+		self.Size,
+		Color3.fromRGB(0, 0, 0),
+		true,
+		0.9
+	)
+	
+	-- Loading background with gradient
+	self.LoadingBG = newRect(
+		self.Position,
+		self.Size,
+		colors.background,
+		true
+	)
+	
+	-- Your custom image/logo
+	self.LoadingImage = Drawing.new('Image')
+	self.LoadingImage.Data = 'rbxassetid://82778184739046' -- Using your image ID
+	self.LoadingImage.Size = Vector2.new(120, 120)
+	self.LoadingImage.Position = centerPos - Vector2.new(60, 80)
+	self.LoadingImage.Transparency = 1
+	self.LoadingImage.Visible = true
+	
+	-- Rotating glow rings around image
+	self.LoadingRings = {}
+	for i = 1, 3 do
+		local ring = Drawing.new('Circle')
+		ring.Position = centerPos
+		ring.Radius = 80 + (i * 15)
+		ring.Color = colors.accentGlow
+		ring.Filled = false
+		ring.Thickness = 3
+		ring.Transparency = 0.7
+		ring.Visible = true
+		table.insert(self.LoadingRings, ring)
+	end
+	
+	-- Spinning particles around the image
+	self.LoadingParticles = {}
+	for i = 1, 12 do
+		local particle = Drawing.new('Circle')
+		particle.Radius = 4
+		particle.Color = colors.accent
+		particle.Filled = true
+		particle.Transparency = 0.8
+		particle.Visible = true
+		table.insert(self.LoadingParticles, particle)
+	end
+	
+	-- Loading text with shadow
+	self.LoadingTextShadow = newText(
+		"Loading Puppyware Enhanced...",
+		18,
+		centerPos + Vector2.new(-110, 61),
+		Color3.new(0, 0, 0),
+		2
+	)
+	
+	self.LoadingText = newText(
+		"Loading Puppyware Enhanced...",
+		18,
+		centerPos + Vector2.new(-109, 60),
+		colors.text,
+		2
+	)
+	
+	-- Progress bar background
+	self.ProgressBG = newRect(
+		centerPos + Vector2.new(-120, 90),
+		Vector2.new(240, 6),
+		colors.outline,
+		true
+	)
+	
+	-- Progress bar fill
+	self.ProgressFill = newRect(
+		centerPos + Vector2.new(-120, 90),
+		Vector2.new(0, 6),
+		colors.accent,
+		true
+	)
+	
+	-- Progress bar glow
+	self.ProgressGlow = newRect(
+		centerPos + Vector2.new(-122, 88),
+		Vector2.new(0, 10),
+		colors.accentGlow,
+		true,
+		0.5
+	)
+	
+	-- Loading status text
+	self.LoadingStatus = newText(
+		"Initializing...",
+		14,
+		centerPos + Vector2.new(-40, 110),
+		colors.textSecondary,
+		2
+	)
+	
+	-- Floating orbs for extra effect
+	self.FloatingOrbs = {}
+	for i = 1, 6 do
+		local orb = Drawing.new('Circle')
+		orb.Radius = math.random(3, 8)
+		orb.Color = lerpColor(colors.accent, colors.accentGlow, math.random())
+		orb.Filled = true
+		orb.Transparency = 0.6
+		orb.Visible = true
+		
+		-- Random position around the screen
+		orb.Position = Vector2.new(
+			math.random(self.Position.X + 50, self.Position.X + self.Size.X - 50),
+			math.random(self.Position.Y + 50, self.Position.Y + self.Size.Y - 50)
+		)
+		
+		table.insert(self.FloatingOrbs, orb)
+	end
+end
+
+function PuppywareUI:UpdateLoadingScreen(currentTime)
+	if not self.IsLoading then return end
+	
+	local centerPos = self.Position + self.Size / 2
+	
+	-- Animate image fade in and scale
+	local imageScale = math.sin(currentTime * 2) * 0.1 + 1
+	local imageSize = Vector2.new(120 * imageScale, 120 * imageScale)
+	self.LoadingImage.Size = imageSize
+	self.LoadingImage.Position = centerPos - imageSize / 2 - Vector2.new(0, 40)
+	
+	-- Rotate the glow rings
+	for i, ring in ipairs(self.LoadingRings) do
+		ring.Position = centerPos - Vector2.new(0, 40)
+		-- Simulate rotation by changing transparency in a wave pattern
+		local angle = currentTime * (1 + i * 0.5) + i * math.pi * 0.67
+		ring.Transparency = 0.3 + math.sin(angle) * 0.4
+	end
+	
+	-- Animate spinning particles
+	for i, particle in ipairs(self.LoadingParticles) do
+		local angle = (currentTime * 2) + (i / #self.LoadingParticles) * math.pi * 2
+		local radius = 100 + math.sin(currentTime + i) * 10
+		particle.Position = centerPos + Vector2.new(
+			math.cos(angle) * radius,
+			math.sin(angle) * radius - 40
+		)
+		particle.Transparency = 0.4 + math.sin(currentTime * 3 + i) * 0.3
+	end
+	
+	-- Update progress bar
+	local progressWidth = 240 * self.LoadingProgress
+	self.ProgressFill.Size = Vector2.new(progressWidth, 6)
+	self.ProgressGlow.Size = Vector2.new(progressWidth + 4, 10)
+	
+	-- Animate floating orbs
+	for i, orb in ipairs(self.FloatingOrbs) do
+		local floatY = math.sin(currentTime * 0.5 + i) * 20
+		orb.Position = Vector2.new(
+			orb.Position.X + math.sin(currentTime * 0.3 + i) * 0.5,
+			self.Position.Y + 100 + floatY + (i * 30)
+		)
+		orb.Transparency = 0.3 + math.sin(currentTime * 2 + i) * 0.3
+	end
+	
+	-- Pulse the image glow
+	local glowIntensity = math.sin(currentTime * 4) * 0.5 + 0.5
+	self.LoadingImage.Transparency = 0.9 + glowIntensity * 0.1
+end
+
+function PuppywareUI:StartLoadingSequence()
+	local loadingSteps = {
+		{text = "Initializing components...", duration = 0.8},
+		{text = "Loading user interface...", duration = 1.2},
+		{text = "Connecting to services...", duration = 1.0},
+		{text = "Applying enhancements...", duration = 0.9},
+		{text = "Finalizing setup...", duration = 0.7},
+		{text = "Ready!", duration = 0.4}
+	}
+	
+	local currentStep = 1
+	local startTime = tick()
+	
+	-- Create dramatic particle explosion at start
+	createParticles(self.Position + self.Size / 2, 20, colors.accent)
+	
+	local function updateLoading()
+		local elapsed = tick() - startTime
+		local step = loadingSteps[currentStep]
+		
+		if step then
+			-- Update loading text
+			self.LoadingStatus.Text = step.text
+			
+			-- Calculate progress
+			local stepProgress = math.min(elapsed / step.duration, 1)
+			local totalStepWeight = 1 / #loadingSteps
+			self.LoadingProgress = ((currentStep - 1) * totalStepWeight) + (stepProgress * totalStepWeight)
+			
+			-- Add some randomness to make it feel more realistic
+			self.LoadingProgress = self.LoadingProgress + math.sin(tick() * 10) * 0.01
+			self.LoadingProgress = math.min(self.LoadingProgress, 1)
+			
+			if stepProgress >= 1 then
+				currentStep = currentStep + 1
+				startTime = tick()
+				
+				-- Create progress particles
+				createParticles(
+					self.Position + self.Size / 2 + Vector2.new(-120 + (240 * self.LoadingProgress), 90),
+					5,
+					colors.accentGlow
+				)
+			end
+			
+			if currentStep <= #loadingSteps then
+				wait(0.05) -- Small delay for smooth animation
+				updateLoading()
+			else
+				-- Loading complete - start finish animation
+				self:FinishLoading()
+			end
+		end
+	end
+	
+	-- Start the loading sequence
+	spawn(updateLoading)
+end
+
+function PuppywareUI:FinishLoading()
+	-- Final explosion of particles
+	createParticles(self.Position + self.Size / 2, 30, colors.success)
+	
+	-- Fade out loading screen
+	createAnimation(1.0, 1, 0, function(alpha)
+		self.LoadingOverlay.Transparency = alpha * 0.9
+		self.LoadingBG.Transparency = alpha
+		self.LoadingImage.Transparency = alpha
+		self.LoadingText.Transparency = alpha
+		self.LoadingTextShadow.Transparency = alpha
+		self.LoadingStatus.Transparency = alpha
+		self.ProgressBG.Transparency = alpha
+		self.ProgressFill.Transparency = alpha
+		self.ProgressGlow.Transparency = alpha
+		
+		for _, ring in ipairs(self.LoadingRings) do
+			ring.Transparency = alpha * 0.7
+		end
+		
+		for _, particle in ipairs(self.LoadingParticles) do
+			particle.Transparency = alpha * 0.8
+		end
+		
+		for _, orb in ipairs(self.FloatingOrbs) do
+			orb.Transparency = alpha * 0.6
+		end
+		
+		if alpha <= 0 then
+			self:DestroyLoadingScreen()
+			self.IsLoading = false
+			
+			-- Animate main UI in
+			self:AnimateUIIn()
+		end
+	end)
+end
+
+function PuppywareUI:AnimateUIIn()
+	-- Scale up animation for main UI
+	createAnimation(0.6, 0.8, 1, function(scale)
+		-- This would scale all UI elements - simplified for brevity
+		-- You could implement full scale animation here
+	end)
+	
+	-- Create welcome particles
+	createParticles(self.Position + self.Size / 2, 15, colors.accent)
+end
+
+function PuppywareUI:DestroyLoadingScreen()
+	-- Clean up loading screen elements
+	if self.LoadingOverlay then self.LoadingOverlay:Remove() end
+	if self.LoadingBG then self.LoadingBG:Remove() end
+	if self.LoadingImage then self.LoadingImage:Remove() end
+	if self.LoadingText then self.LoadingText:Remove() end
+	if self.LoadingTextShadow then self.LoadingTextShadow:Remove() end
+	if self.LoadingStatus then self.LoadingStatus:Remove() end
+	if self.ProgressBG then self.ProgressBG:Remove() end
+	if self.ProgressFill then self.ProgressFill:Remove() end
+	if self.ProgressGlow then self.ProgressGlow:Remove() end
+	
+	for _, ring in ipairs(self.LoadingRings or {}) do
+		ring:Remove()
+	end
+	
+	for _, particle in ipairs(self.LoadingParticles or {}) do
+		particle:Remove()
+	end
+	
+	for _, orb in ipairs(self.FloatingOrbs or {}) do
+		orb:Remove()
+	end
+	
+	self.LoadingRings = {}
+	self.LoadingParticles = {}
+	self.FloatingOrbs = {}
+end
+	local uis = game:GetService('UserInputService')
+	local dragging = false
+	local dragStart, startPos
+
+	uis.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			local mouse = uis:GetMouseLocation()
+			
+			-- Check close button click
+			local closePos = self.Position + Vector2.new(self.Size.X - 35, 8)
+			if mouse.X > closePos.X and mouse.X < closePos.X + 24 and
+			   mouse.Y > closePos.Y and mouse.Y < closePos.Y + 24 then
+				self:AnimateClose()
+				return
+			end
+			
+			-- Check title bar drag
+			if mouse.X > self.Position.X and mouse.X < self.Position.X + self.Size.X and
+			   mouse.Y > self.Position.Y and mouse.Y < self.Position.Y + 40 then
+				dragging = true
+				dragStart = Vector2.new(mouse.X, mouse.Y)
+				startPos = self.Position
+				
+				-- Create drag particles
+				createParticles(mouse, 8, colors.accent)
+			end
+			
+			-- Check tab clicks
+			local tabCount = #self.Tabs
+			if tabCount > 0 then
+				local tabWidth = math.floor(self.Size.X / tabCount)
+				for i = 1, tabCount do
+					local tabPos = self.Position + Vector2.new((i - 1) * tabWidth, 40)
+					if mouse.X > tabPos.X and mouse.X < tabPos.X + tabWidth and
+					   mouse.Y > tabPos.Y and mouse.Y < tabPos.Y + 35 then
+						self:SelectTab(i)
+						break
+					end
+				end
+			end
+		end
+	end)
+
+	uis.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = false
+		end
+	end)
+
+	uis.InputChanged:Connect(function(input)
+		if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+			local mouse = uis:GetMouseLocation()
+			local delta = Vector2.new(mouse.X, mouse.Y) - dragStart
+			self.Position = startPos + delta
+			self:Redraw()
+		elseif input.UserInputType == Enum.UserInputType.MouseMovement then
+			-- Hover effects
+			local mouse = uis:GetMouseLocation()
+			self:UpdateHoverEffects(mouse)
+		end
+	end)
+end
+
+function PuppywareUI:UpdateHoverEffects(mousePos)
+	-- Close button hover
+	local closePos = self.Position + Vector2.new(self.Size.X - 35, 8)
+	local isHoveringClose = mousePos.X > closePos.X and mousePos.X < closePos.X + 24 and
+							mousePos.Y > closePos.Y and mousePos.Y < closePos.Y + 24
+	
+	if isHoveringClose and self.HoveredElement ~= "close" then
+		self.HoveredElement = "close"
+		createAnimation(0.2, 24, 28, function(value)
+			self.CloseButton.Size = Vector2.new(value, value)
+			self.CloseButton.Position = closePos - Vector2.new((value - 24) / 2, (value - 24) / 2)
+		end)
+	elseif not isHoveringClose and self.HoveredElement == "close" then
+		self.HoveredElement = nil
+		createAnimation(0.2, 28, 24, function(value)
+			self.CloseButton.Size = Vector2.new(value, value)
+			self.CloseButton.Position = closePos - Vector2.new((value - 24) / 2, (value - 24) / 2)
+		end)
+	end
+end
+
+function PuppywareUI:SelectTab(tabIndex)
+	if tabIndex ~= self.SelectedTab then
+		-- Animate tab selection
+		createParticles(
+			self.Position + Vector2.new((tabIndex - 1) * math.floor(self.Size.X / #self.Tabs) + 50, 57),
+			12,
+			colors.accentGlow
+		)
+		
+		self.SelectedTab = tabIndex
+		self:Redraw()
+	end
+end
+
+function PuppywareUI:AnimateClose()
+	-- Scale down animation
+	createAnimation(0.3, 1, 0, function(scale)
+		local newSize = self.Size * scale
+		local offset = (self.Size - newSize) / 2
+		
+		-- Update all elements
+		for _, rect in ipairs(self.BGGradient) do
+			rect.Size = Vector2.new(newSize.X, newSize.Y / 10)
+			rect.Position = self.Position + offset + Vector2.new(0, ((_ - 1) * (newSize.Y / 10)))
+		end
+		
+		if scale <= 0 then
+			self:Destroy()
+		end
+	end)
+	
+	-- Create explosion particles
+	createParticles(self.Position + self.Size / 2, 20, colors.accent)
+end
+
+function PuppywareUI:AddTab(tabName)
+	table.insert(self.Tabs, { 
+		Name = tabName, 
+		Sections = {}, 
+		Controls = {},
+		AnimatedIn = false
+	})
+	
+	-- Animate new tab in
+	local tabIndex = #self.Tabs
+	createAnimation(0.4, 0, 1, function(value)
+		-- Tab animation handled in redraw
+	end)
+	
+	self:Redraw()
+	return tabIndex
+end
+
+function PuppywareUI:AddSection(tabIndex, sectionName)
+	local tab = self.Tabs[tabIndex]
+	if tab then
+		table.insert(tab.Sections, { 
+			Name = sectionName, 
+			Controls = {},
+			Expanded = true
+		})
+		self:Redraw()
+		return #tab.Sections
+	end
+end
+
+function PuppywareUI:AddButton(tabIndex, sectionIndex, text, callback)
+	local tab = self.Tabs[tabIndex]
+	if tab then
+		local section = tab.Sections[sectionIndex]
+		if section then
+			table.insert(section.Controls, { 
+				Type = 'Button', 
+				Text = text, 
+				Callback = callback,
+				Hovered = false
+			})
+			self:Redraw()
+		end
+	end
+end
+
+function PuppywareUI:Redraw()
+	if not self.Visible then return end
+	if self.IsLoading then return end -- Don't redraw main UI during loading
+	
+	-- Update background gradient
+	for i, rect in ipairs(self.BGGradient) do
+		rect.Position = self.Position + Vector2.new(0, (i - 1) * (self.Size.Y / 10))
+		rect.Size = Vector2.new(self.Size.X, self.Size.Y / 10)
+		rect.Visible = self.Visible
+	end
+	
+	-- Update outer glow
+	for i, glowRect in ipairs(self.OuterGlow) do
+		glowRect.Position = self.Position - Vector2.new(i * 2, i * 2)
+		glowRect.Size = self.Size + Vector2.new(i * 4, i * 4)
+		glowRect.Visible = self.Visible
+	end
+	
+	-- Update outline
+	self.Outline.Position = self.Position - Vector2.new(2, 2)
+	self.Outline.Size = self.Size + Vector2.new(4, 4)
+	self.Outline.Visible = self.Visible
+	
+	-- Update title bar gradient
+	for i, rect in ipairs(self.TitleBarGradient) do
+		rect.Position = self.Position + Vector2.new((i - 1) * (self.Size.X / 8), 0)
+		rect.Size = Vector2.new(self.Size.X / 8, 40)
+		rect.Visible = self.Visible
+	end
+	
+	-- Update title
+	self.TitleShadow.Position = self.Position + Vector2.new(13, 8)
+	self.TitleShadow.Visible = self.Visible
+	self.TitleText.Position = self.Position + Vector2.new(12, 7)
+	self.TitleText.Visible = self.Visible
+	
+	-- Update close button
+	self.CloseButton.Position = self.Position + Vector2.new(self.Size.X - 35, 8)
+	self.CloseButton.Visible = self.Visible
+	self.CloseX.Position = self.Position + Vector2.new(self.Size.X - 27, 8)
+	self.CloseX.Visible = self.Visible
+	
+	-- Update status bar
+	self.StatusBar.Position = self.Position + Vector2.new(0, self.Size.Y - 25)
+	self.StatusBar.Size = Vector2.new(self.Size.X, 25)
+	self.StatusBar.Visible = self.Visible
+	self.StatusText.Position = self.Position + Vector2.new(10, self.Size.Y - 20)
+	self.StatusText.Visible = self.Visible
+	
+	-- Redraw tabs with enhanced effects
+	self:RedrawTabs()
+	self:RedrawContent()
+end
+
+function PuppywareUI:RedrawTabs()
+	-- Clear existing tab elements
+	for _, obj in ipairs(self.TabRects) do obj:Remove() end
+	for _, obj in ipairs(self.TabTexts) do obj:Remove() end
+	for _, glowGroup in ipairs(self.TabGlows) do
+		for _, glow in ipairs(glowGroup) do glow:Remove() end
+	end
+	self.TabRects, self.TabTexts, self.TabGlows = {}, {}, {}
+	
+	local tabCount = #self.Tabs
+	if tabCount == 0 then return end
+	
+	local tabWidth = math.floor(self.Size.X / tabCount)
+	
+	for i, tab in ipairs(self.Tabs) do
+		local tabPos = self.Position + Vector2.new((i - 1) * tabWidth, 40)
+		local isSelected = (i == self.SelectedTab)
+		
+		-- Tab background with glow for selected
+		local tabColor = isSelected and colors.tabsel or colors.tabbg
+		local tabRect = newRect(tabPos, Vector2.new(tabWidth, 35), tabColor, true)
+		
+		-- Add glow effect for selected tab
+		local glowGroup = {}
+		if isSelected then
+			glowGroup = createGlow(tabPos, Vector2.new(tabWidth, 35), colors.tabselGlow, 2)
+		end
+		
+		-- Tab separator
+		if i < tabCount then
+			local separator = newRect(
+				tabPos + Vector2.new(tabWidth - 1, 5),
+				Vector2.new(1, 25),
+				colors.outline,
+				true
+			)
+			separator.Visible = self.Visible
+		end
+		
+		-- Tab text with better positioning
+		local tabText = newText(
+			tab.Name,
+			16,
+			tabPos + Vector2.new(tabWidth / 2 - (#tab.Name * 4), 10),
+			isSelected and Color3.new(1, 1, 1) or colors.textSecondary,
+			2
+		)
+		
+		tabRect.Visible = self.Visible
+		tabText.Visible = self.Visible
+		
+		table.insert(self.TabRects, tabRect)
+		table.insert(self.TabTexts, tabText)
+		table.insert(self.TabGlows, glowGroup)
+	end
+end
+
+function PuppywareUI:RedrawContent()
+	-- Clear existing content
+	for _, obj in ipairs(self.SectionRects) do obj:Remove() end
+	for _, obj in ipairs(self.SectionTexts) do obj:Remove() end
+	for _, obj in ipairs(self.ControlElements) do obj:Remove() end
+	self.SectionRects, self.SectionTexts, self.ControlElements = {}, {}, {}
+	
+	local currentTab = self.Tabs[self.SelectedTab]
+	if not currentTab then return end
+	
+	local contentY = 85 -- Start below tabs
+	local contentPadding = 15
+	
+	for sectionIndex, section in ipairs(currentTab.Sections) do
+		-- Section header
+		local sectionPos = self.Position + Vector2.new(contentPadding, contentY)
+		local sectionRect = newRect(
+			sectionPos,
+			Vector2.new(self.Size.X - contentPadding * 2, 30),
+			colors.section,
+			true
+		)
+		sectionRect.Visible = self.Visible
+		
+		-- Section title
+		local sectionText = newText(
+			section.Name,
+			16,
+			sectionPos + Vector2.new(10, 7),
+			colors.text,
+			2
+		)
+		sectionText.Visible = self.Visible
+		
+		table.insert(self.SectionRects, sectionRect)
+		table.insert(self.SectionTexts, sectionText)
+		
+		contentY = contentY + 40
+		
+		-- Section controls
+		for controlIndex, control in ipairs(section.Controls) do
+			if control.Type == 'Button' then
+				local buttonPos = self.Position + Vector2.new(contentPadding + 10, contentY)
+				local buttonRect = newRect(
+					buttonPos,
+					Vector2.new(self.Size.X - contentPadding * 2 - 20, 28),
+					colors.button,
+					true
+				)
+				
+				local buttonText = newText(
+					control.Text,
+					15,
+					buttonPos + Vector2.new(10, 6),
+					colors.text,
+					2
+				)
+				
+				-- Add subtle gradient effect to button
+				local buttonHighlight = newRect(
+					buttonPos,
+					Vector2.new(self.Size.X - contentPadding * 2 - 20, 1),
+					colors.accentGlow,
+					true,
+					0.3
+				)
+				
+				buttonRect.Visible = self.Visible
+				buttonText.Visible = self.Visible
+				buttonHighlight.Visible = self.Visible
+				
+				table.insert(self.ControlElements, buttonRect)
+				table.insert(self.ControlElements, buttonText)
+				table.insert(self.ControlElements, buttonHighlight)
+				
+				contentY = contentY + 35
+			end
+		end
+		
+		contentY = contentY + 10 -- Section spacing
+	end
+end
+
+function PuppywareUI:SetVisible(visible)
+	self.Visible = visible
+	self:Redraw()
+end
+
+function PuppywareUI:Destroy()
+	-- Stop animations
+	if self.AnimationConnection then
+		self.AnimationConnection:Disconnect()
+	end
+	
+	-- Destroy loading screen if active
+	if self.IsLoading then
+		self:DestroyLoadingScreen()
+	end
+	
+	-- Remove all drawing objects
+	local function removeIfExists(obj)
+		if obj and obj.Remove then
+			pcall(function() obj:Remove() end)
+		end
+	end
+	
+	-- Remove all elements
+	for _, gradient in ipairs(self.BGGradient) do removeIfExists(gradient) end
+	for _, glow in ipairs(self.OuterGlow) do removeIfExists(glow) end
+	for _, titleRect in ipairs(self.TitleBarGradient) do removeIfExists(titleRect) end
+	for _, tabRect in ipairs(self.TabRects) do removeIfExists(tabRect) end
+	for _, tabText in ipairs(self.TabTexts) do removeIfExists(tabText) end
+	for _, glowGroup in ipairs(self.TabGlows) do
+		for _, glow in ipairs(glowGroup) do removeIfExists(glow) end
+	end
+	for _, sectionRect in ipairs(self.SectionRects) do removeIfExists(sectionRect) end
+	for _, sectionText in ipairs(self.SectionTexts) do removeIfExists(sectionText) end
+	for _, element in ipairs(self.ControlElements) do removeIfExists(element) end
+	
+	removeIfExists(self.Outline)
+	removeIfExists(self.TitleShadow)
+	removeIfExists(self.TitleText)
+	removeIfExists(self.CloseButton)
+	removeIfExists(self.CloseX)
+	removeIfExists(self.StatusBar)
+	removeIfExists(self.StatusText)
+	
+	-- Clear animation table
+	animations = {}
+end
+
+return PuppywareUI
