@@ -1,15 +1,41 @@
---[[
+local Signal = {}
+Signal.__index = Signal
 
-    Library Made for https://octohook.xyz/
-    Developed by liam#4567
-    Modified by tatar0071#0627
+function Signal.new()
+    local self = setmetatable({}, Signal)
+    self._binds = {}
+    return self
+end
 
-    Ik this code is really shit in some places lol
-    will rewrite again i was just using some rly old stuff that i was lazy to rewrite
-    could've been a lot better and more optimized in some places and some things arent done as they should've been
-    got lazy when trying to make disable all roblox input when ui is open sooo that will be added later =)
+function Signal:Connect(fn)
+    table.insert(self._binds, fn)
+    return {
+        Disconnect = function()
+            for i, v in ipairs(self._binds) do
+                if v == fn then
+                    table.remove(self._binds, i)
+                    break
+                end
+            end
+        end
+    }
+end
 
-]]
+function Signal:Fire(...)
+    for _, fn in ipairs(self._binds) do
+        fn(...)
+    end
+end
+
+function Signal:Wait()
+    local co = coroutine.running()
+    local bind
+    bind = self:Connect(function(...)
+        bind:Disconnect()
+        coroutine.resume(co, ...)
+    end)
+    return coroutine.yield()
+end
 
 -- // Load
 
@@ -74,7 +100,7 @@ local library = {
         ['colortrans'] = 'https://raw.githubusercontent.com/portallol/luna/main/modules/trans.png';
     };
     numberStrings = {['Zero'] = 0, ['One'] = 1, ['Two'] = 2, ['Three'] = 3, ['Four'] = 4, ['Five'] = 5, ['Six'] = 6, ['Seven'] = 7, ['Eight'] = 8, ['Nine'] = 9};
-    signal = loadstring(game:HttpGet('https://raw.githubusercontent.com/Quenty/NevermoreEngine/refs/heads/main/src/signal/src/Shared/Signal.lua'))();
+    signal = Signal;
     open = false;
     opening = false;
     hasInit = false;
@@ -4793,7 +4819,7 @@ function library:CreateSettingsTab(menu)
     end})
     
     mainSection:AddButton({text = 'Copy Discord', flag = 'copydiscord', callback = function()
-        setclipboard('discord.gg/seU6gab')
+        setclipboard('discord.gg/U4nacgaM49')
     end})
 
     mainSection:AddButton({text = 'Rejoin Server', confirm = true, callback = function()
