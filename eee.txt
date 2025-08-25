@@ -1,0 +1,227 @@
+--// Puppyware-style UI using Roblox Drawing API
+--// Minimal, but easily extensible. Only works with executors that support Drawing API!
+
+local Drawing = Drawing or getgenv().Drawing
+assert(Drawing, 'Your executor does not support the Drawing API!')
+
+local PuppywareUI = {}
+PuppywareUI.__index = PuppywareUI
+
+-- Colors (adjust to match Puppyware's look)
+local colors = {
+	background = Color3.fromRGB(24, 24, 24),
+	accent = Color3.fromRGB(153, 51, 255), -- vibrant purple
+	outline = Color3.fromRGB(49, 49, 49),
+	text = Color3.fromRGB(220, 220, 220),
+	section = Color3.fromRGB(33, 33, 33),
+	tabbg = Color3.fromRGB(19, 19, 19),
+	tabsel = Color3.fromRGB(80, 40, 120),
+}
+
+-- Utility functions
+local function newText(text, size, pos, color)
+	local t = Drawing.new('Text')
+	t.Text = text
+	t.Size = size
+	t.Position = pos
+	t.Color = color
+	t.Center = false
+	t.Outline = true
+	return t
+end
+
+local function newRect(pos, size, color, filled)
+	local r = Drawing.new('Square')
+	r.Position = pos
+	r.Size = size
+	r.Color = color
+	r.Filled = filled or true
+	r.Thickness = 2
+	r.Visible = true
+	return r
+end
+
+function PuppywareUI.new(title)
+	local self = setmetatable({}, PuppywareUI)
+	self.Visible = true
+	self.Title = title or 'Puppyware'
+	self.Tabs = {}
+	self.SelectedTab = 1
+
+	-- Window position and size
+	self.Position = Vector2.new(100, 100)
+	self.Size = Vector2.new(420, 320)
+
+	-- Window background
+	self.BG = newRect(self.Position, self.Size, colors.background, true)
+	self.Outline = newRect(
+		self.Position - Vector2.new(2, 2),
+		self.Size + Vector2.new(4, 4),
+		colors.outline,
+		false
+	)
+	self.TitleBar = newRect(
+		self.Position,
+		Vector2.new(self.Size.X, 35),
+		colors.accent,
+		true
+	)
+	self.TitleText = newText(
+		self.Title,
+		20,
+		self.Position + Vector2.new(12, 7),
+		Color3.new(1, 1, 1)
+	)
+
+	-- Tab bar
+	self.TabRects = {}
+	self.TabTexts = {}
+
+	-- UI Redraw
+	self:Redraw()
+
+	-- Input (drag)
+	local uis = game:GetService('UserInputService')
+	local dragging = false
+	local dragStart, startPos
+	uis.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			local mouse = uis:GetMouseLocation()
+			if
+				mouse.X > self.Position.X
+				and mouse.X < self.Position.X + self.Size.X
+				and mouse.Y > self.Position.Y
+				and mouse.Y < self.Position.Y + 35
+			then
+				dragging = true
+				dragStart = Vector2.new(mouse.X, mouse.Y)
+				startPos = self.Position
+			end
+		end
+	end)
+	uis.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = false
+		end
+	end)
+	uis.InputChanged:Connect(function(input)
+		if
+			dragging
+			and input.UserInputType == Enum.UserInputType.MouseMovement
+		then
+			local mouse = uis:GetMouseLocation()
+			local delta = Vector2.new(mouse.X, mouse.Y) - dragStart
+			self.Position = startPos + delta
+			self:Redraw()
+		end
+	end)
+
+	return self
+end
+
+function PuppywareUI:AddTab(tabName)
+	table.insert(self.Tabs, { Name = tabName, Sections = {}, Controls = {} })
+	self:Redraw()
+	return #self.Tabs
+end
+
+function PuppywareUI:AddSection(tabIndex, sectionName)
+	local tab = self.Tabs[tabIndex]
+	if tab then
+		table.insert(tab.Sections, { Name = sectionName, Controls = {} })
+		self:Redraw()
+		return #tab.Sections
+	end
+end
+
+function PuppywareUI:AddButton(tabIndex, sectionIndex, text, callback)
+	local tab = self.Tabs[tabIndex]
+	if tab then
+		local section = tab.Sections[sectionIndex]
+		if section then
+			table.insert(
+				section.Controls,
+				{ Type = 'Button', Text = text, Callback = callback }
+			)
+			self:Redraw()
+		end
+	end
+end
+
+function PuppywareUI:Redraw()
+	-- Window
+	self.BG.Position = self.Position
+	self.BG.Size = self.Size
+	self.BG.Color = colors.background
+	self.BG.Visible = self.Visible
+
+	self.Outline.Position = self.Position - Vector2.new(2, 2)
+	self.Outline.Size = self.Size + Vector2.new(4, 4)
+	self.Outline.Color = colors.outline
+	self.Outline.Visible = self.Visible
+
+	self.TitleBar.Position = self.Position
+	self.TitleBar.Size = Vector2.new(self.Size.X, 35)
+	self.TitleBar.Color = colors.accent
+	self.TitleBar.Visible = self.Visible
+
+	self.TitleText.Position = self.Position + Vector2.new(12, 7)
+	self.TitleText.Text = self.Title
+	self.TitleText.Visible = self.Visible
+
+	-- Tabs
+	for _, obj in ipairs(self.TabRects) do
+		obj:Remove()
+	end
+	for _, obj in ipairs(self.TabTexts) do
+		obj:Remove()
+	end
+	self.TabRects, self.TabTexts = {}, {}
+	local tabCount = #self.Tabs
+	local tabw = math.floor(self.Size.X / math.max(1, tabCount))
+	for i, tab in ipairs(self.Tabs) do
+		local tabPos = self.Position + Vector2.new((i - 1) * tabw, 35)
+		local tabRect = newRect(
+			tabPos,
+			Vector2.new(tabw, 32),
+			(i == self.SelectedTab) and colors.tabsel or colors.tabbg,
+			true
+		)
+		local tabTxt = newText(
+			tab.Name,
+			17,
+			tabPos + Vector2.new(10, 6),
+			Color3.new(1, 1, 1)
+		)
+		tabRect.Visible = self.Visible
+		tabTxt.Visible = self.Visible
+		table.insert(self.TabRects, tabRect)
+		table.insert(self.TabTexts, tabTxt)
+	end
+
+	-- Sections & Controls (only for selected tab)
+	-- For brevity, not implemented here. Expand as needed!
+end
+
+function PuppywareUI:Destroy()
+	for _, obj in pairs(self) do
+		if typeof(obj) == 'table' then
+			for _, o in ipairs(obj) do
+				if
+					typeof(o) == 'Instance'
+					or typeof(o) == 'table' and o.Remove
+				then
+					o:Remove()
+				end
+			end
+		elseif
+			typeof(obj) == 'Instance' or (typeof(obj) == 'table' and obj.Remove)
+		then
+			pcall(function()
+				obj:Remove()
+			end)
+		end
+	end
+end
+
+return PuppywareUI
